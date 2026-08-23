@@ -1,0 +1,426 @@
+주식 및 ETF 관리 에이전트 및 대시보드 구현
+
+본 프로젝트에서는 Stock_List.txt 파일에 명시된 한국/미국 상장 주식 및 ETF에 대해서 매수 또는 매도 신호를 포착하고, 지금이 추가 매수를 해야할 시점인지, holding을 해야할 시점인지, 매도를 해야할 시점인지를 나름의 logic에 의해서 판단하고, 이를 대시보드로 표시해주는 에이전트를 만들려고 해.
+
+Stock_List.txt 파일은 "종목명" "(종목코드 또는 티커명)"의 포맷으로 되어 있고, 한국 상장 주식이나 ETF의 경우 종목코드가, 미국 상장 주식이나 ETF의 경우 티커명이 기입되어 있어. 에이전트가 할 일 중 하나는 해당 파일을 읽고, 종목명과 종목코드 또는 티커명이 제대로 mapping이 되어 있는지 cross-check 하고, 틀린 경우 또는 종목명에 오류가 있는 경우에는 나에게 확인하고 수정을 해야해.
+
+다음으로는 하기 내용을 참고해서 score를 매기고, 단기, 중기, 장기적으로 상승 추세인지 또는 하락 추세인지, 매도를 할 시점인지, 아니면 추가 매수 또는 holding을 해야할 시점인지를 대시보드로 만들어주면 좋겠어. 
+
+Gemini에게 "주식 종목의 현재가, 목표가, RSI, Band%, OBV, 이격, 거래량 지표를 가지고, 현재 이 주식이 단기, 중기, 장기 상승 추세인지, 하락 추세인지, 단기적으로 매도를 해야하는지, 추가 매수를 해야하는지, holding을 해야하는지를 scoring 한 algorithm 중 신뢰도가 높은 것이 있어? 내 나름의 주식 매매 알고리즘을 만들기 위해서 전문가 사례를 참고하면 좋을 것 같아. 위에 언급한 지표 외에 이동평균선 등 기타 지표를 추가해도 좋아." 질문을 하고 받은 내용이 아래와 같으니 구현에 참고하도록 해.
+
+---------------------------
+
+월가 퀀트 펀드와 전문 트레이딩 데스크에서 단일 지표의 맹점을 극복하기 위해 사용하는 표준 모델은 **'계층형 복합 스코어링(Hierarchical Composite Scoring)'** 방식입니다.
+
+지표를 단순히 더하면 추세장과 횡보장에서 상반된 신호(예: RSI 70 초과가 강한 상승 추세인지 과열 매도 신호인지)가 충돌하므로, **1단계: 시계열 추세 필터(국면 정의) → 2단계: 모멘텀/수급 스코어링(0~100점) → 3단계: 매매 액션 트리거** 순서로 설계하는 것이 가장 신뢰도가 높습니다.
+
+---
+
+### 1. 단기·중기·장기 추세 판정 매트릭스
+
+이동평균선 배열과 이격도를 결합하여 시계열별 추세를 먼저 확정합니다.
+
+| 구분 | 핵심 판정 지표 | 상승 추세 (Bullish) | 하락 추세 (Bearish) | 횡보/전환 (Neutral) |
+| --- | --- | --- | --- | --- |
+| **장기 추세** | 주가 & 200일 SMA, 200일선 기울기 | 주가 > 200일선 & 기울기 > 0 | 주가 < 200일선 & 기울기 < 0 | 200일선 수렴 / 횡보 |
+| **중기 추세** | 60일 SMA, 60일 이격도, OBV 추세 | 60일선 우상향 & OBV > OBV 20MA | 60일선 우하향 & OBV < OBV 20MA | 60일 이격도 98~102% |
+| **단기 추세** | 5일/20일 SMA 배열, 20일 이격도 | 5일선 > 20일선 & 20일 이격도 > 100% | 5일선 < 20일선 & 20일 이격도 < 100% | 골든/데드크로스 빈발 구간 |
+
+---
+
+### 2. 100점 만점 팩터별 가중치 스코어링 모델
+
+총점 **100점**을 기준으로 각 영역별 점수를 합산합니다.
+
+**① 추세 강도 팩터 (Weight: 35점)**
+
+* **이평선 정배열(5 > 20 > 60 > 200일)**: +15점 (완전 정배열 15점, 단기 정배열 10점, 역배열 0점)
+* **20일 이격도 ($Disparity_{20}$)**:
+* $100\% \le Disparity \le 106\%$: +10점 (건전한 상승 추세)
+* $106\% < Disparity \le 112\%$: +5점 (단기 가열)
+* $Disparity > 115\%$: 0점 (단기 과열 경계) / $Disparity < 95\%$: 0점 (하락세)
+
+
+* **200일선 상회 여부**: 주가 > 200 SMA (+10점)
+
+**② 모멘텀 및 밴드 위치 팩터 (Weight: 25점)**
+
+* **RSI (14일)**:
+* $50 \le RSI \le 65$: +15점 (추세적 상승 모멘텀 유지)
+* $65 < RSI \le 75$: +10점 (강한 모멘텀이나 분할 매도 고려)
+* $40 \le RSI < 50$: +8점 (중립/눌림목)
+* $RSI > 80$: 0점 (초과열) / $RSI < 30$: +5점 (과매도 반등 대기)
+
+
+* **Bollinger Band %B ($Band\% = \frac{Price - Lower}{Upper - Lower}$)**:
+* $0.5 \le \%B \le 0.8$: +10점 (중심선 위 안정적 상승 밴드)
+* $0.8 < \%B \le 1.0$: +6점 (상단 밴드 근접)
+* $\%B > 1.0$: +2점 (밴드 상단 이탈 - 단기 조정 위험)
+* $\%B < 0.2$: 0점 (하단 압박)
+
+
+
+**③ 수급 및 거래량 팩터 (Weight: 25점)**
+
+* **OBV 추세**: 당일 OBV > OBV 20일 이동평균선 (+15점)
+* **거래량 배수 ($Volume / Volume_{20MA}$)**:
+* 상승일 + 거래량 1.5배 이상: +10점 (기관/세력 매수 유입)
+* 상승일 + 거래량 평수준(0.8~1.2배): +6점
+* 하락일 + 거래량 1.5배 이상: -5점 (대량 매도 출회 감점)
+
+
+
+**④ 가치/목표가 괴리율 팩터 (Weight: 15점)**
+
+* **목표가 대비 상승 여력 ($\frac{Target - Price}{Price} \times 100$)**:
+* $\ge 25\%$: +15점
+* $15\% \sim 24\%$: +10점
+* $5\% \sim 14\%$: +5점
+* $< 5\%$ 또는 목표가 하회: 0점
+
+
+
+---
+
+### 3. 최종 매매 액션 의사결정 트리 (Action Trigger)
+
+점수 구간과 보조 조건을 결합하여 최종 액션을 도출합니다.
+
+```
+                  [ 총점 (Total Score) 계산 ]
+                              │
+       ┌──────────────────────┼──────────────────────┐
+       ▼                      ▼                      ▼
+  [ 75점 이상 ]          [ 45 ~ 74점 ]          [ 45점 미만 ]
+       │                      │                      │
+ ┌─────┴─────┐                │                      │
+ │ 단기 과열?│                │                      │
+ └─────┬─────┘                │                      │
+   No  │  Yes                 ▼                      ▼
+   ┌───┴───┐               [ HOLD ]              [ SELL ]
+   ▼       ▼              (추세 유지/관망)       (비중 축소/손절)
+[추가매수] [단기 분할매도]
+
+```
+
+* **추가 매수 (Aggressive Buy / Add)**:
+* **조건**: 총점 **75점 이상** AND 장·중기 상승 추세 AND 단기 비과열($RSI \le 68$, $\%B \le 0.85$).
+* **전략**: 상승 추세 속 건강한 20일선 눌림목 구간으로 판단하여 비중 확대.
+
+
+* **단기 분할 매도 (Take Profit / Trim)**:
+* **조건**: 총점 **75점 이상**이나 단기 과열 지표 발생($RSI \ge 75$ OR $\%B \ge 1.05$ OR 20일 이격도 $\ge 115\%$).
+* **전략**: 추세는 살아있으나 단기 슈팅에 따른 차익실현 물량 출회 대비 30~50% 비중 분할 익절.
+
+
+* **보유 (Hold)**:
+* **조건**: 총점 **45 ~ 74점**.
+* **전략**: 중기 추세 훼손 없음, 목표가 도달 전까지 기존 포지션 유지.
+
+
+* **매도 및 비중 축소 (Reduce / Exit)**:
+* **조건**: 총점 **45점 미만** OR 주가 200일선 이탈 OR (하락일 + 대량 거래량 + OBV 20MA 붕괴).
+* **전략**: 손절 기준(-5%~-8%) 또는 추세 꺾임 확인 시 즉시 현금화.
+
+---
+
+### 4. 알고리즘 신뢰도를 높이기 위한 추가 권장 지표
+
+* **ATR (Average True Range)**: 목표가 산정 및 동적 손절가(Trailing Stop) 설정 시 고정 % 대신 $2 \times ATR$을 활용하면 변동성 노이즈에 의한 조기 손절을 방지할 수 있습니다.
+* **ADX (Average Directional Index)**: 추세의 절대 강도를 측정(ADX > 25는 추세장, ADX < 20은 횡보장). 횡보장에서는 RSI/볼린저밴드 가중치를 높이고, 추세장에서는 이평선/OBV 가중치를 높이는 **가변 가중치(Dynamic Weighting)** 적용이 가능합니다.
+
+-----------
+
+상기 관련해서 Gemini가 생성한 Python back-testing code는 다음과 같으니 역시 구현에 참고하도록 해.
+
+---------------
+
+import yfinance as yf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ==============================================================================
+# 1. 지표 계산 함수 (Indicators Calculation)
+# ==============================================================================
+def calculate_indicators(df, target_upside_ratio=0.20):
+    """
+    주가 데이터에 이동평균선, 이격도, RSI, 볼린저 밴드, OBV, 거래량 배수 등을 산출합니다.
+    """
+    data = df.copy()
+    
+    # 1) 이동평균선 (SMA)
+    data['SMA5'] = data['Close'].rolling(window=5).mean()
+    data['SMA20'] = data['Close'].rolling(window=20).mean()
+    data['SMA60'] = data['Close'].rolling(window=60).mean()
+    data['SMA200'] = data['Close'].rolling(window=200).mean()
+    
+    # 이평선 기울기 (5일 변화율 기준)
+    data['SMA200_slope'] = data['SMA200'].diff(5)
+    data['SMA60_slope'] = data['SMA60'].diff(5)
+    
+    # 2) 20일 이격도 (Disparity)
+    data['Disparity20'] = (data['Close'] / data['SMA20']) * 100
+    
+    # 3) RSI (14일)
+    delta = data['Close'].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    rs = gain / (loss + 1e-9)
+    data['RSI14'] = 100 - (100 / (1 + rs))
+    
+    # 4) 볼린저 밴드 및 %B (20일, 2-std)
+    std20 = data['Close'].rolling(window=20).std()
+    data['BB_Upper'] = data['SMA20'] + (std20 * 2)
+    data['BB_Lower'] = data['SMA20'] - (std20 * 2)
+    data['Band_Pct'] = (data['Close'] - data['BB_Lower']) / (data['BB_Upper'] - data['BB_Lower'] + 1e-9)
+    
+    # 5) OBV (On-Balance Volume) & OBV 20MA
+    obv_direction = np.sign(data['Close'].diff()).fillna(0)
+    data['OBV'] = (obv_direction * data['Volume']).cumsum()
+    data['OBV_SMA20'] = data['OBV'].rolling(window=20).mean()
+    
+    # 6) 거래량 배수 (Volume Multiplier)
+    data['Vol_SMA20'] = data['Volume'].rolling(window=20).mean()
+    data['Vol_Ratio'] = data['Volume'] / (data['Vol_SMA20'] + 1e-9)
+    
+    # 7) 목표가 대비 상승 여력 (최근 52주 신고가 또는 동적 채널 활용)
+    # 여기서는 52주(252영업일) 신고가를 목표가 대용으로 사용
+    data['Target_Price'] = data['Close'].rolling(window=252, min_periods=60).max()
+    data['Upside_Potential'] = ((data['Target_Price'] - data['Close']) / data['Close']) * 100
+    
+    return data
+
+# ==============================================================================
+# 2. 스코어링 알고리즘 (Scoring Algorithm - 100점 만점)
+# ==============================================================================
+def calculate_scores(data):
+    df = data.copy()
+    
+    trend_score = pd.Series(0.0, index=df.index)
+    momentum_score = pd.Series(0.0, index=df.index)
+    volume_score = pd.Series(0.0, index=df.index)
+    target_score = pd.Series(0.0, index=df.index)
+    
+    # --- [1] 추세 강도 팩터 (35점) ---
+    # 이평선 정배열 (5 > 20 > 60 > 200)
+    full_aligned = (df['SMA5'] > df['SMA20']) & (df['SMA20'] > df['SMA60']) & (df['SMA60'] > df['SMA200'])
+    short_aligned = (df['SMA5'] > df['SMA20']) & (df['SMA20'] > df['SMA60'])
+    trend_score += np.where(full_aligned, 15, np.where(short_aligned, 10, 0))
+    
+    # 20일 이격도
+    disp = df['Disparity20']
+    disp_pts = np.where((disp >= 100) & (disp <= 106), 10,
+               np.where((disp > 106) & (disp <= 112), 5,
+               np.where((disp > 115) | (disp < 95), 0, 3)))
+    trend_score += disp_pts
+    
+    # 200일선 상회
+    trend_score += np.where(df['Close'] > df['SMA200'], 10, 0)
+    
+    # --- [2] 모멘텀 및 밴드 위치 팩터 (25점) ---
+    # RSI
+    rsi = df['RSI14']
+    rsi_pts = np.where((rsi >= 50) & (rsi <= 65), 15,
+              np.where((rsi > 65) & (rsi <= 75), 10,
+              np.where((rsi >= 40) & (rsi < 50), 8,
+              np.where(rsi < 30, 5, 0))))
+    momentum_score += rsi_pts
+    
+    # 볼린저 %B
+    bp = df['Band_Pct']
+    bp_pts = np.where((bp >= 0.5) & (bp <= 0.8), 10,
+             np.where((bp > 0.8) & (bp <= 1.0), 6,
+             np.where(bp > 1.0, 2, 0)))
+    momentum_score += bp_pts
+    
+    # --- [3] 수급 및 거래량 팩터 (25점) ---
+    # OBV 추세
+    volume_score += np.where(df['OBV'] > df['OBV_SMA20'], 15, 0)
+    
+    # 거래량 배수
+    is_up_day = df['Close'] > df['Open']
+    vol_ratio = df['Vol_Ratio']
+    vol_pts = np.where(is_up_day & (vol_ratio >= 1.5), 10,
+              np.where(is_up_day & (vol_ratio >= 0.8), 6,
+              np.where((~is_up_day) & (vol_ratio >= 1.5), -5, 0)))
+    volume_score += vol_pts
+    
+    # --- [4] 목표가 괴리율 팩터 (15점) ---
+    upside = df['Upside_Potential']
+    target_pts = np.where(upside >= 25, 15,
+                 np.where(upside >= 15, 10,
+                 np.where(upside >= 5, 5, 0)))
+    target_score += target_pts
+    
+    df['Total_Score'] = (trend_score + momentum_score + volume_score + target_score).clip(lower=0, upper=100)
+    return df
+
+# ==============================================================================
+# 3. 백테스팅 엔진 (Backtesting Simulation)
+# ==============================================================================
+def run_backtest(df, initial_capital=10_000_000, stop_loss_pct=0.07):
+    """
+    일자별 시뮬레이션:
+    - 매수: Total Score >= 75 AND RSI <= 68 AND %B <= 0.85
+    - 분할익절: 포지션 보유 중 Total Score >= 75 AND (RSI >= 75 OR %B >= 1.05 OR Disparity >= 115) -> 30% 매도
+    - 전량매도(손절/청산): Total Score < 45 OR Close < SMA200 OR 손절(-7%) 도달
+    """
+    cash = initial_capital
+    shares = 0
+    buy_price = 0.0
+    
+    portfolio_history = []
+    trade_logs = []
+    
+    for date, row in df.iterrows():
+        close = row['Close']
+        score = row['Total_Score']
+        rsi = row['RSI14']
+        bp = row['Band_Pct']
+        disp = row['Disparity20']
+        sma200 = row['SMA200']
+        
+        if pd.isna(score) or pd.isna(sma200):
+            portfolio_history.append({'Date': date, 'Portfolio_Value': cash, 'Position': shares})
+            continue
+            
+        current_value = cash + (shares * close)
+        
+        # 보유 포지션이 있는 경우
+        if shares > 0:
+            pnl_pct = (close - buy_price) / buy_price
+            
+            # [1] 손절 조건 (-7% 하락)
+            if pnl_pct <= -stop_loss_pct:
+                cash += shares * close
+                trade_logs.append({'Date': date, 'Type': 'STOP_LOSS', 'Price': close, 'Shares': shares, 'PnL_Pct': pnl_pct})
+                shares = 0
+                
+            # [2] 추세 붕괴 / 매도 조건
+            elif score < 45 or close < sma200:
+                cash += shares * close
+                trade_logs.append({'Date': date, 'Type': 'EXIT', 'Price': close, 'Shares': shares, 'PnL_Pct': pnl_pct})
+                shares = 0
+                
+            # [3] 단기 과열 분할 매도 (30% 비중 축소)
+            elif score >= 75 and (rsi >= 75 or bp >= 1.05 or disp >= 115):
+                trim_shares = int(shares * 0.3)
+                if trim_shares > 0:
+                    cash += trim_shares * close
+                    shares -= trim_shares
+                    trade_logs.append({'Date': date, 'Type': 'TRIM', 'Price': close, 'Shares': trim_shares, 'PnL_Pct': pnl_pct})
+        
+        # 신규 매수 조건 (현금 비중이 있고 매수 신호 발생 시)
+        if shares == 0 and score >= 75 and rsi <= 68 and bp <= 0.85 and close > sma200:
+            target_alloc = cash * 0.95  # 95% 현금 투입
+            shares_to_buy = int(target_alloc // close)
+            if shares_to_buy > 0:
+                shares = shares_to_buy
+                cash -= shares * close
+                buy_price = close
+                trade_logs.append({'Date': date, 'Type': 'BUY', 'Price': close, 'Shares': shares, 'PnL_Pct': 0.0})
+                
+        portfolio_val = cash + (shares * close)
+        portfolio_history.append({'Date': date, 'Portfolio_Value': portfolio_val, 'Position': shares, 'Score': score})
+        
+    res_df = pd.DataFrame(portfolio_history).set_index('Date')
+    return res_df, pd.DataFrame(trade_logs)
+
+# ==============================================================================
+# 4. 성과 지표 계산 및 시각화
+# ==============================================================================
+def evaluate_performance(res_df, df_benchmark, initial_capital=10_000_000):
+    res_df['Benchmark_Close'] = df_benchmark['Close']
+    res_df['Benchmark_Value'] = (res_df['Benchmark_Close'] / res_df['Benchmark_Close'].iloc[0]) * initial_capital
+    
+    # 수익률
+    strat_total_ret = (res_df['Portfolio_Value'].iloc[-1] / initial_capital - 1) * 100
+    bench_total_ret = (res_df['Benchmark_Value'].iloc[-1] / initial_capital - 1) * 100
+    
+    # MDD (최대 낙폭)
+    roll_max = res_df['Portfolio_Value'].cummax()
+    drawdown = (res_df['Portfolio_Value'] - roll_max) / roll_max
+    max_dd = drawdown.min() * 100
+    
+    # 샤프 지수 (연율화, 무위험 수익률 3% 가정)
+    daily_ret = res_df['Portfolio_Value'].pct_change().dropna()
+    excess_ret = daily_ret - (0.03 / 252)
+    sharpe = np.sqrt(252) * excess_ret.mean() / (daily_ret.std() + 1e-9)
+    
+    print("=" * 45)
+    print("           BACKTEST PERFORMANCE            ")
+    print("=" * 45)
+    print(f"전략 총 수익률 (Strategy Total Return) : {strat_total_ret:6.2f}%")
+    print(f"벤치마크 수익률 (Benchmark Return)     : {bench_total_ret:6.2f}%")
+    print(f"최대 낙폭 (Max Drawdown, MDD)          : {max_dd:6.2f}%")
+    print(f"샤프 비율 (Sharpe Ratio)               : {sharpe:6.2f}")
+    print("=" * 45)
+    
+    # 시각화 차트
+    fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True, gridspec_kw={'height_ratios': [3, 1]})
+    
+    axes[0].plot(res_df.index, res_df['Portfolio_Value'], label='Scoring Strategy', color='royalblue', lw=2)
+    axes[0].plot(res_df.index, res_df['Benchmark_Value'], label='Buy & Hold Benchmark', color='gray', linestyle='--', alpha=0.7)
+    axes[0].set_ylabel('Portfolio Value (KRW / USD)')
+    axes[0].legend(loc='upper left')
+    axes[0].grid(True, alpha=0.3)
+    axes[0].set_title('Hierarchical Composite Scoring Strategy vs Benchmark')
+    
+    axes[1].plot(res_df.index, res_df['Score'], label='Composite Score', color='darkorange', lw=1)
+    axes[1].axhline(75, color='green', linestyle=':', label='Buy / Strong Bullish (75)')
+    axes[1].axhline(45, color='red', linestyle=':', label='Exit / Bearish (45)')
+    axes[1].set_ylabel('Score (0-100)')
+    axes[1].set_ylim(0, 105)
+    axes[1].legend(loc='upper left')
+    axes[1].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
+
+# ==============================================================================
+# 5. 실행부 (예시: SK하이닉스 000660.KS 또는 엔비디아 NVDA)
+# ==============================================================================
+if __name__ == '__main__':
+    ticker = "000660.KS"  # SK하이닉스 (미국 주식 테스트 시 "NVDA" 등으로 변경)
+    start_date = "2021-01-01"
+    end_date = "2026-08-01"
+    
+    print(f"Fetching historical data for {ticker}...")
+    df_raw = yf.download(ticker, start=start_date, end=end_date, progress=False)
+    
+    # Multi-index 컬럼 평탄화 (yfinance 최신 버전 대응)
+    if isinstance(df_raw.columns, pd.MultiIndex):
+        df_raw.columns = df_raw.columns.get_level_values(0)
+        
+    df_indicators = calculate_indicators(df_raw)
+    df_scored = calculate_scores(df_indicators)
+    
+    # 200일선 계산 이후 유효 구간부터 백테스트 실행
+    df_test = df_scored.dropna(subset=['SMA200', 'Total_Score']).copy()
+    
+    res_df, trade_logs = run_backtest(df_test, initial_capital=100_000_000, stop_loss_pct=0.07)
+    evaluate_performance(res_df, df_test, initial_capital=100_000_000)
+
+----------------
+
+각 종목에 대해서 다양한 정보와 지표를 입수해야할텐데, 가장 토큰을 덜 사용하고도 해당 정보를 획득할 수 있는 방법을 찾아봐.
+
+대시보드는 .html file로 만들어주되, 일단 초안은 네가 적절하게 만들어서 제시하고 이후 내가 피드백을 주면 그것을 반영해서 업데이트해 나가는 방식으로 하자. 대시보드는 한국시간으로 매주 토요일 오전 7시에 자동으로 업데이트가 되었으면 하고, 과거에 매수/매도/holding 추천한 기록과 현 시점에서 봤을때 해당 추천이 옳았는지를 scoring 하는 기능도 구현이 되었으면 해.
+
+위와 같은 작업을 하기 위한 최적의 agent/sub-agent 구조를 제안해주고 (single agent or multiple agent like harness), 기타 필요한 정보나 문의 사항 또는 제안이 있으면 알려줘.
+
+이제 과거 이력으로 본 scoring system을 검증했으면 하는데, 어떻게 검증하는 것이 좋을지 실험 계획 및 PASS criteria를 제안해줘. 내 생각에는 O개월 전의 "액션" 결과와 주가 변동비율을 보여주면 될 것 같아. PASS criteria 관점에서는 "추가매수" 추천을 했는데, 주가가 O% 이상 올랐으면 +X 점, 반대로 주가가 O% 이상 하락했으면 -Y점 식으로 점수를 매길수도 있을 것 같은데, 어떻게 하는 것이 적절할 지 잘 모르겠으니, 네가 추천을 해줘. 위에서 O개월 전의 "액션" 결과를 볼 때 O개월로 하는 것이 좋을지도 알려주고. 본 검증 결과는 대시보드에 표시할 필요는 없고, 본 터미널에 출력해줘도 돼.
+
+TRIM 조건(과열 판정 기준)을 재검토해서 너무 빨리 "일부 매도" sign을 내지 않도록 알고리즘을 조정해줘. 일봉이
+  볼린저밴드 상단을 튀어 나가는 과열구간인 경우 나의 기준은 고점을 찍고, 일봉 5일선 아래로 이탈하는지 여부를 확인하고,
+  고점을 찍은 날이나 그 뒷날 장대 음봉 또는 윗꼬리가 길게 달린 양봉 또는 음봉이 나오는 경우 30~50% 매도를 하는
+  편이야. 이것 관련해서 전문가들의 판단 기준을 참고해서 알고리즘을 업데이트 해줘. 추가로 일봉/주봉의 RSI가 70 이상에서
+  70 이하로 뚫고 내려오는 경우 매도 시점으로 판단하고 있고, 반대로 일봉/주봉의 RSI가 30 이하에서 30 이상으로 뚫고
+  올라가는 경우 저점 확인 신호라고 생각하는데, 이 부분도 알고리즘에 반영이 되면 좋겠네. 그리고, 이런 주요 신호들,
+  예를들어 일봉 하단이 볼린저밴드 상단을 튀어 나갔거나, RSI 70 및 30 선을 뚫고 올라갔거나 뚫고 내려온 경우,
+  일봉/주봉/월봉 상 현재 가격이 볼린저밴드 중간 (20일 이동평균선)을 뚫고 올라가거나, 내려온 경우 등이 발생했을 때에는
+  대시보드에도 알려주면 좋겠어.
+
+기존 script를 그대로 사용하되 종목 리스트 입력을 Stock_List.txt 파일이 아니고, S&P 500 시총 상위 30 종목과 KOSPI 시총 상위 30종목으로 만든 대시보드를 dashboard_top30.html로 생성해주고, ./data/dashboard_backup/ 폴더에 dashboard_top30_yymmdd.html 포맷으로 만들어줘.
+
