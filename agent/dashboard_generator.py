@@ -425,3 +425,44 @@ def generate_dashboard(results: list[dict], failures: list[dict], out_path: Path
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_name = f"{out_path.stem}_{dt.date.today().strftime('%y%m%d')}{out_path.suffix}"
     (backup_dir / backup_name).write_text(html, encoding="utf-8")
+
+    _git_commit_and_push(out_path.parent, f"Update {out_path.name} ({dt.datetime.now().strftime('%Y-%m-%d %H:%M')})")
+
+
+def _git_commit_and_push(repo_root: Path, message: str) -> None:
+    """대시보드 생성 후 자동 git add/commit/push. 실패해도 대시보드 생성 자체는 막지 않는다
+    (git 미설치, 원격 미설정, 네트워크/인증 문제 등은 경고만 출력하고 넘어간다)."""
+    import subprocess
+
+    def run(args):
+        return subprocess.run(
+            ["git", *args], cwd=repo_root, capture_output=True, text=True, timeout=60,
+        )
+
+    try:
+        if not (repo_root / ".git").exists():
+            return
+        status = run(["status", "--porcelain"])
+        if status.returncode != 0:
+            print(f"  [git] status 확인 실패, 자동 push 건너뜀: {status.stderr.strip()}")
+            return
+        if not status.stdout.strip():
+            return  # 변경사항 없음
+
+        add = run(["add", "-A"])
+        if add.returncode != 0:
+            print(f"  [git] add 실패: {add.stderr.strip()}")
+            return
+
+        commit = run(["commit", "-m", message])
+        if commit.returncode != 0:
+            print(f"  [git] commit 실패: {commit.stderr.strip()}")
+            return
+
+        push = run(["push"])
+        if push.returncode != 0:
+            print(f"  [git] push 실패(로컬 커밋은 유지됨) - 인증/네트워크 확인 필요: {push.stderr.strip()}")
+        else:
+            print(f"  [git] GitHub push 완료: {message}")
+    except Exception as e:
+        print(f"  [git] 자동 push 중 오류(무시하고 계속 진행): {type(e).__name__}: {e}")
