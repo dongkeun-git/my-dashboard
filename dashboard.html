@@ -150,7 +150,7 @@
 </head>
 <body>
   <h1>보유 주식/ETF 매매 신호 대시보드</h1>
-  <p class="subtitle">생성 시각: 2026-09-20 08:43 · 총 57개 종목 · 계층형 복합 스코어링 모델 (추세 35 / 모멘텀·밴드 25 / 수급·거래량 25 / 목표가 괴리 15, ADX 동적가중치 반영)</p>
+  <p class="subtitle">생성 시각: 2026-09-20 08:51 · 총 57개 종목 · 계층형 복합 스코어링 모델 (추세 35 / 모멘텀·밴드 25 / 수급·거래량 25 / 목표가 괴리 15, ADX 동적가중치 반영)</p>
 
   <div id="marketTiming"></div>
 
@@ -264,13 +264,14 @@ function renderMarketTiming() {
   const mt = MARKET_TIMING;
   const revertLabel = mt.recent_touch_revert ? "있음" : "없음";
   const regimeLabel = mt.bull_regime ? "상승장(Bull)" : "하락장(Bear)";
-  const verdictLabel = mt.signal_on ? "신호 켜짐 (매수 우호적)" : "평상시";
+  const verdictLabel = mt.signal_on ? "신호 켜짐 (매수 우호적)" : "평상시 (매수/매도 신호 아님)";
+  const verdictOptions = "신호 켜짐(매수 우호적) / 평상시(매수/매도 신호 아님)";
   el.innerHTML = `
     <div class="market-timing ${mt.signal_on ? 'on' : ''}">
       <div class="mt-title">VIX 기반 지수 ETF 매수 타이밍 (참고용, ${mt.as_of} 기준)</div>
-      <div>VIX 볼린저밴드(20,2.0) 상단 대비 현재 VIX: <b>${fmt(mt.vix_pct_of_band,0)}%</b> (VIX ${fmt(mt.vix_now,1)} / 상단밴드 ${fmt(mt.vix_upper_band,1)}) · 최근 5거래일 내 상단돌파 후 복귀: <b>${revertLabel}</b></div>
+      <div>VIX 볼린저밴드 상단(20일 이동평균 + 2 sigma) 대비 현재 VIX: <b>${fmt(mt.vix_pct_of_band,0)}%</b> (VIX ${fmt(mt.vix_now,1)} / 상단밴드 ${fmt(mt.vix_upper_band,1)}) · 최근 5거래일 내 상단돌파 후 복귀: <b>${revertLabel}</b></div>
       <div>S&amp;P500 ${fmt(mt.spy_now,0)} vs 200일선 ${fmt(mt.spy_sma200,0)} → <b>${regimeLabel}</b></div>
-      <div class="mt-detail">종합 판단: <span class="mt-verdict">${verdictLabel}</span></div>
+      <div class="mt-detail">종합 판단: <span class="mt-verdict">${verdictLabel}</span> (옵션: ${verdictOptions})</div>
     </div>`;
 }
 
