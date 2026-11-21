@@ -74,6 +74,21 @@
     table.vr tbody td { font-size: 12px; padding: 4px 5px; border-bottom: 1px solid var(--border); }
     table.vr tbody td::before { content: none; }
   }
+  /* 매수 전 확인 규칙 배너 (2026-11-21 매매 점검 결과로 추가, 개인 매매정보 미포함) */
+  .rule-banner {
+    border: 2px solid var(--critical); border-radius: 10px; background: var(--critical-bg);
+    padding: 12px 16px; margin: 0 0 18px; font-size: 13px; line-height: 1.55;
+  }
+  .rule-banner .rb-title { font-weight: 800; font-size: 15px; color: var(--critical); margin-bottom: 6px; }
+  .rule-banner ol { margin: 0; padding-left: 20px; }
+  .rule-banner li { margin: 3px 0; }
+  .rule-banner li b { color: var(--critical); }
+  .rule-banner .rb-chips { margin-top: 4px; }
+  .rule-banner details summary { cursor: pointer; color: var(--text-secondary); font-size: 12px; }
+  .rb-chip { display: inline-block; margin: 2px 4px 0 0; padding: 1px 7px; border-radius: 5px; font-size: 11px; font-weight: 600; background: var(--surface-1); border: 1px solid var(--border); }
+  .rb-chip.sell { color: var(--critical); border-color: var(--critical); }
+  .rb-chip.trim { color: var(--warning); border-color: var(--warning); }
+  .rule-banner .rb-note { margin-top: 6px; font-size: 11px; color: var(--text-secondary); }
   .summary { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
   .stat-tile {
     background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
@@ -190,7 +205,9 @@
 </head>
 <body>
   <h1>보유 주식/ETF 매매 신호 대시보드</h1>
-  <p class="subtitle">생성 시각: 2026-11-21 13:15 · 총 74개 종목 · 계층형 복합 스코어링 모델 (추세 35 / 모멘텀·밴드 25 / 수급·거래량 25 / 목표가 괴리 15)</p>
+  <p class="subtitle">생성 시각: 2026-11-21 14:30 · 총 74개 종목 · 계층형 복합 스코어링 모델 (추세 35 / 모멘텀·밴드 25 / 수급·거래량 25 / 목표가 괴리 15)</p>
+
+  <div class="rule-banner" id="ruleBanner"></div>
 
   <div id="valRank"></div>
 
@@ -309,6 +326,22 @@ function changeArrow(change) {
   if (change === "up") return '<span class="change-arrow change-up" title="직전 대비 개선">▲</span>';
   if (change === "down") return '<span class="change-arrow change-down" title="직전 대비 악화">▼</span>';
   return "";
+}
+
+function renderRuleBanner() {
+  const el = document.getElementById("ruleBanner");
+  const byAct = (a) => RESULTS.filter(r => r.action === a).sort((x, y) => String(x.name).localeCompare(String(y.name), "ko"));
+  const sells = byAct("SELL"), trims = byAct("TRIM");
+  const chips = (rows, cls) => rows.map(r => `<span class="rb-chip ${cls}" title="${escAttr(r.code)}">${r.name}</span>`).join("");
+  el.innerHTML = `
+    <div class="rb-title">⛔ 매수 전 확인 규칙</div>
+    <ol>
+      <li><b>SELL 종목은 신규 매수 금지</b>(물타기 포함) · TRIM 종목은 소액만 · 대시보드에 없는 종목은 목록에 먼저 추가하고 액션을 확인한 뒤 매수. <span style="color:var(--text-secondary)">(적립식 DCA는 예외: 정해진 금액대로 유지)</span>
+        <div class="rb-chips"><details><summary>현재 SELL ${sells.length}개 · TRIM ${trims.length}개 보기</summary>
+          ${chips(sells, "sell")}${chips(trims, "trim")}</details></div></li>
+      <li><b>레버리지·인버스 ETF는 포트폴리오 2% 이내</b> · 손실 중 추가매수(물타기) 금지 · 손절선은 매수 전에 정하고 지킨다.</li>
+    </ol>
+    <div class="rb-note">근거: 2026-11 급락기 실제 매매 점검에서 SELL 상태 종목 매수와 레버리지 ETF 분할 추가매수가 손실의 대부분을 차지했고, 매수를 ADD 신호 때로 한정했다면 손실이 크게 줄었음. 매도 판단은 재량 유지(액션보다 빨랐음).</div>`;
 }
 
 function renderMarketTiming() {
@@ -486,7 +519,7 @@ function renderFailures() {
     FAILURES.map(f => `<li>${f.name} (${f.code}): ${f.error}</li>`).join("") + `</ul></details>`;
 }
 
-renderValRank(); renderMarketTiming(); renderCapex(); renderSummary(); renderControls(); renderTable(); renderFailures();
+renderRuleBanner(); renderValRank(); renderMarketTiming(); renderCapex(); renderSummary(); renderControls(); renderTable(); renderFailures();
 </script>
 </body>
 </html>
