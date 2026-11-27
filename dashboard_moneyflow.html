@@ -1543,8 +1543,8 @@ function renderRiskStrip() {  // 최상단: 검증 통과 위험 경보만 모�
         near ? (d.on ? d.stats.on : d.stats.off) : null, d.stats.near_all,
         `고점 3% 이내에서 동일가중이 63일간 하위 20% 부진 · 효과 대부분 2015~ · 마지막 ${esc(d.last_on || "-")}`); }
   const B = (PANELS || {}).breadth;
-  if (B && B.cards) B.cards.forEach(c => { const s = (c.stats || []).find(b => b.band === c.band);
-    add(`${esc(c.label)} SELL 비율`, esc(c.bench), `${c.now}% · ${esc(c.band)}`, s ? s.dd10 : null, null, c.label.includes("미국") ? "후행 · 미국만 차이 뚜렷" : "후행 · 한국은 차이 약함"); });
+  if (B && B.cards) B.cards.forEach(c => { const s = (c.stats || []).find(b => b.band === c.band), b0 = (c.stats || []).find(b => b.band === "전체(평소)");
+    add(`${esc(c.label)} SELL 비율`, esc(c.bench), `${c.now}% · ${esc(c.band)}`, s ? s.dd10 : null, b0 ? b0.dd10 : null, c.label.includes("미국") ? "후행 · 미국만 차이 뚜렷" : "후행 · 한국은 차이 약함"); });
   const v = RISK.volreg;
   if (v && v.cases && v.cases[v.case]) { const s = v.cases[v.case].stats || [], b = v.base || [];
     add("변동성 국면", "KOSPI · S&amp;P", esc(v.label), isNum(s[2]) ? Math.round(s[2] * 100) : null, isNum(b[2]) ? Math.round(b[2] * 100) : null, `KOSPI 기준 · S&amp;P ${P0(s[4])} (평소 ${P0(b[4])})`); }
