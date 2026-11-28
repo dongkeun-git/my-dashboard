@@ -89,7 +89,7 @@
   .rb-chip.sell { color: var(--critical); border-color: var(--critical); }
   .rb-chip.trim { color: var(--warning); border-color: var(--warning); }
   .rb-chip.long { color: var(--accent); border-color: var(--accent); }
-  .lv-chip { display: inline-block; margin-top: 3px; padding: 1px 6px; border-radius: 5px; font-size: 10.5px; font-weight: 700;
+  .lv-chip { display: inline-block; margin-top: 2px; padding: 0 5px; border-radius: 4px; font-size: 10px; line-height: 1.5; font-weight: 700;
              color: var(--accent); border: 1px solid var(--accent); background: var(--surface-1); white-space: nowrap; cursor: help; }
   .lv-chip.lv-deep { color: var(--surface-1); background: var(--accent); }
   .rule-banner .rb-note { margin-top: 6px; font-size: 11px; color: var(--text-secondary); }
@@ -209,7 +209,7 @@
 </head>
 <body>
   <h1>보유 주식/ETF 매매 신호 대시보드</h1>
-  <p class="subtitle">생성 시각: 2026-11-28 16:59 · 총 73개 종목 · 계층형 복합 스코어링 모델 (추세 35 / 모멘텀·밴드 25 / 수급·거래량 25 / 목표가 괴리 15)</p>
+  <p class="subtitle">생성 시각: 2026-11-28 17:10 · 총 73개 종목 · 계층형 복합 스코어링 모델 (추세 35 / 모멘텀·밴드 25 / 수급·거래량 25 / 목표가 괴리 15)</p>
 
   <div class="rule-banner" id="ruleBanner"></div>
 
@@ -340,7 +340,7 @@ function longViewChip(r) {
     " · 장기(3~5년) 보유 관점에서는 매수 구간: 과거 SELL 날 매수가 다음 ADD까지 기다린 매수보다 5년 뒤 지수/ETF +3.5%·개별주 +9.0% (77~81% 승)." +
     (r.long_view === "deep" ? " 고점 −30% 이하 구간의 3~5년 수익률은 평소보다 연 +3.5~6%p." : "") +
     " 적립액은 그대로, 사기로 정한 돈은 미루지 말 것. 표시 전용(점수·액션 불변).";
-  const label = r.long_view === "deep" ? "장기 매수 구간(강)" : "장기 매수 구간";
+  const label = r.long_view === "deep" ? "장기매수(강)" : "장기매수";
   return `<br><span class="lv-chip lv-${r.long_view}" title="${escAttr(why)}">${label}${r.dd_ath !== null && r.dd_ath !== undefined ? ' ' + fmt(r.dd_ath*100,0) + '%' : ''}</span>`;
 }
 
@@ -503,7 +503,7 @@ function renderTable() {
   tbody.innerHTML = rows.map(r => `
     <tr title="${r.reason.replace(/"/g,'&quot;')}">
       <td class="num" data-label="순위"><b>${fmt(r.rank_now,0)}</b></td>
-      <td class="name-cell${r.good === 'core' ? ' good-core' : r.good === 'high_vol' ? ' good-hv' : ''}" data-label="종목명" title="${escAttr(r.good_why)}">${r.good === 'core' ? '<span class="star">★</span>' : r.good === 'high_vol' ? '<span class="star">☆</span>' : ''}${r.name}${r.is_etf ? ' <span class="code-cell">ETF</span>' : ''}</td>
+      <td class="name-cell${r.good === 'core' ? ' good-core' : r.good === 'high_vol' ? ' good-hv' : ''}" data-label="종목명" title="${escAttr(r.good_why)}">${r.good === 'core' ? '<span class="star">★</span>' : r.good === 'high_vol' ? '<span class="star">☆</span>' : ''}${r.name}${r.is_etf ? ' <span class="code-cell">ETF</span>' : ''}${longViewChip(r)}</td>
       <td class="code-cell" data-label="코드/티커">${r.code}</td>
       <td class="num" data-label="주가 1개월전">${fmt(r.price_1m,0)}</td>
       <td class="num" data-label="주가 현재"><b>${fmt(r.price_now,0)}</b></td>
@@ -519,7 +519,7 @@ function renderTable() {
       <td class="num" data-label="Band% 주봉">${fmtPct(r.band_pct_w,1)}${changeArrow(r.band_pct_w_change)}</td>
       <td class="num" data-label="Vol比">${fmt(r.vol_ratio,2)}</td>
       <td data-label="액션 1개월전">${r.action_1m ? `<span class="badge badge-${r.action_1m}">${ACTION_LABEL[r.action_1m]}</span>` : "-"}</td>
-      <td data-label="액션 현재"><span class="badge badge-${r.action}">${ACTION_LABEL[r.action]}</span>${changeArrow(r.action_change)}${longViewChip(r)}</td>
+      <td data-label="액션 현재"><span class="badge badge-${r.action}">${ACTION_LABEL[r.action]}</span>${changeArrow(r.action_change)}</td>
       <td class="num" data-label="저평가" title="${escAttr(r.vz_why)}">${!r.good ? '<span class="code-cell">-</span>' : (r.vz_grade ? `<span class="vz vz-${r.vz_grade}">${r.vz_label}</span>` : (r.vz_grade === 0 ? '아님' : '-'))}</td>
       <td class="alerts-cell" data-label="신호" title="${(r.alerts||[]).join(', ').replace(/"/g,'&quot;')}">${
         (r.alerts && r.alerts.length) ? r.alerts.slice(0,2).map(a => `<span class="alert-badge">${a}</span>`).join("") : ""
